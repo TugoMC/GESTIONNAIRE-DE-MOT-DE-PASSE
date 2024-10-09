@@ -1,4 +1,4 @@
-# Secure Password Manager
+# GESTIONNAIRE DE MOT DE PASSE
 
 Ce projet est une application de gestionnaire de mots de passe créée avec **Python** et **PySide6**. Elle permet aux utilisateurs de stocker, visualiser, modifier et supprimer des mots de passe de manière sécurisée. L'application inclut une fonctionnalité de thème (clair/sombre) et se connecte à une base de données SQLite pour stocker les informations des utilisateurs et leurs mots de passe.
 
@@ -19,23 +19,18 @@ Ce projet est une application de gestionnaire de mots de passe créée avec **Py
 
 1. Clonez ce dépôt ou téléchargez les fichiers:
    ```bash
-   git clone https://github.com/votre-utilisateur/secure-password-manager.git
-Accédez au répertoire du projet:
+   git clone https://github.com/TugoMC/GESTIONNAIRE-DE-MOT-DE-PASSE
+   
+2. Accédez au répertoire du projet:
+   ```bash
+    cd secure-password-manager
 
-bash
+3. Installez les dépendances requises:
+   ```bash
+    pip install -r requirements.txt
 
-cd secure-password-manager
-
-Installez les dépendances requises:
-
-bash
-
-pip install -r requirements.txt
-
-Exécutez l'application:
-
-bash
-
+4. Exécutez l'application:
+   ```bash
     python main.py
 
 Utilisation
@@ -46,8 +41,6 @@ Utilisation
     Thème: Utilisez le bouton "Changer de thème" pour basculer entre le thème clair et sombre.
 
 Structure du projet
-
-bash
 
 main.py                # Fichier principal contenant toute la logique de l'application
 passwords.db           # Fichier SQLite utilisé pour stocker les utilisateurs et les mots de passe
