@@ -182,6 +182,12 @@ class PasswordGenerator(QDialog):
         self.setWindowTitle("Générateur de mot de passe")
         self.setGeometry(100, 100, 400, 300)
 
+        screen_geometry = QApplication.primaryScreen().geometry()
+        window_geometry = self.frameGeometry()
+        x = (screen_geometry.width() - window_geometry.width()) // 2
+        y = (screen_geometry.height() - window_geometry.height()) // 2
+        self.move(x, y)
+
         layout = QVBoxLayout(self)
 
         self.length_slider = QSlider(Qt.Horizontal)
@@ -304,6 +310,12 @@ class LoginWindow(QMainWindow):
         self.theme_manager = theme_manager
         self.setWindowTitle("Gestionnaire de mots de passe - Login")
         self.setGeometry(100, 100, 400, 400)
+
+        screen_geometry = QApplication.primaryScreen().geometry()
+        window_geometry = self.frameGeometry()
+        x = (screen_geometry.width() - window_geometry.width()) // 2
+        y = (screen_geometry.height() - window_geometry.height()) // 2
+        self.move(x, y)
 
         self.conn = sqlite3.connect("passwords.db")
         self.cursor = self.conn.cursor()
@@ -467,6 +479,11 @@ class PasswordManager(QMainWindow):
         self.encryptor = Encryptor(master_password, salt.encode())
         self.setWindowTitle(f"Gestionnaire de mots de passe de ({username})")
         self.setGeometry(100, 100, 1400, 700)
+        screen_geometry = QApplication.primaryScreen().geometry()
+        window_geometry = self.frameGeometry()
+        x = (screen_geometry.width() - window_geometry.width()) // 2
+        y = (screen_geometry.height() - window_geometry.height()) // 2
+        self.move(x, y)
         self.conn = sqlite3.connect("passwords.db")
         self.cursor = self.conn.cursor()
         main_widget = QWidget()
