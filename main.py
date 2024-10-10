@@ -1,6 +1,8 @@
 import sys
 import sqlite3
 import hashlib
+import random
+import string
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -15,13 +17,15 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QSizePolicy,
-    QSpacerItem,
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QProgressBar,
+    QSlider,
+    QCheckBox,
 )
-from PySide6.QtGui import QIcon, QFont, QColor
-from PySide6.QtCore import Qt, QSize, QSettings
+from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, QSettings
 
 # Define light and dark mode stylesheets
 LIGHT_STYLE = """
@@ -115,56 +119,132 @@ QTableWidget::item {
 """
 
 
-def initialize_database():
-    conn = sqlite3.connect("passwords.db")
-    cursor = conn.cursor()
+class PasswordStrengthIndicator(QProgressBar):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRange(0, 100)
+        self.setTextVisible(False)
+        self.setFixedHeight(10)
 
-    # Créer la table users si elle n'existe pas
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT UNIQUE,
-            password TEXT
-        )
-    """
-    )
+    def update_strength(self, password):
+        strength = self.calculate_strength(password)
+        self.setValue(strength)
+        self.update_color(strength)
 
-    # Vérifier si la colonne user_id existe dans la table passwords
-    cursor.execute("PRAGMA table_info(passwords)")
-    columns = [column[1] for column in cursor.fetchall()]
+    def calculate_strength(self, password):
+        strength = 0
+        if len(password) >= 8:
+            strength += 25
+        if any(c.islower() for c in password) and any(c.isupper() for c in password):
+            strength += 25
+        if any(c.isdigit() for c in password):
+            strength += 25
+        if any(c in string.punctuation for c in password):
+            strength += 25
+        return strength
 
-    if "user_id" not in columns:
-        # Renommer l'ancienne table
-        cursor.execute("ALTER TABLE passwords RENAME TO passwords_old")
+    def update_color(self, strength):
+        if strength < 50:
+            self.setStyleSheet("QProgressBar::chunk { background-color: red; }")
+        elif strength < 75:
+            self.setStyleSheet("QProgressBar::chunk { background-color: yellow; }")
+        else:
+            self.setStyleSheet("QProgressBar::chunk { background-color: green; }")
 
-        # Créer la nouvelle table avec la structure mise à jour
-        cursor.execute(
+
+class PasswordGenerator(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Générateur de mot de passe")
+        self.setGeometry(100, 100, 400, 300)
+
+        layout = QVBoxLayout(self)
+
+        self.length_slider = QSlider(Qt.Horizontal)
+        self.length_slider.setRange(8, 32)
+        self.length_slider.setValue(16)
+        self.length_label = QLabel(f"Longueur: {self.length_slider.value()}")
+        self.length_slider.valueChanged.connect(self.update_length_label)
+
+        self.use_numbers = QCheckBox("Inclure des chiffres")
+        self.use_symbols = QCheckBox("Inclure des symboles")
+        self.use_numbers.setChecked(True)
+        self.use_symbols.setChecked(True)
+
+        self.generated_password = QLineEdit()
+        self.generated_password.setReadOnly(True)
+
+        generate_button = QPushButton("Générer")
+        generate_button.clicked.connect(self.generate_password)
+
+        use_button = QPushButton("Utiliser ce mot de passe")
+        use_button.clicked.connect(self.accept)
+
+        layout.addWidget(self.length_label)
+        layout.addWidget(self.length_slider)
+        layout.addWidget(self.use_numbers)
+        layout.addWidget(self.use_symbols)
+        layout.addWidget(self.generated_password)
+        layout.addWidget(generate_button)
+        layout.addWidget(use_button)
+
+    def update_length_label(self, value):
+        self.length_label.setText(f"Longueur: {value}")
+
+    def generate_password(self):
+        length = self.length_slider.value()
+        chars = string.ascii_letters
+        if self.use_numbers.isChecked():
+            chars += string.digits
+        if self.use_symbols.isChecked():
+            chars += "@#$%&!?+=-_"
+
+        password = "".join(random.choice(chars) for _ in range(length))
+        self.generated_password.setText(password)
+
+    def get_generated_password(self):
+        return self.generated_password.text()
+
+
+class DatabaseManager:
+    def __init__(self, db_path="passwords.db"):
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+        self.initialize_database()
+
+    def initialize_database(self):
+        # Créer la table 'users' si elle n'existe pas
+        self.cursor.execute(
             """
-            CREATE TABLE passwords (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER,
-                site TEXT,
-                username TEXT,
-                password TEXT,
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL
+            )
+        """
+        )
+        print("Table 'users' vérifiée/créée avec succès.")
+
+        # Créer la table 'passwords' si elle n'existe pas
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS passwords (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                site TEXT NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """
         )
+        print("Table 'passwords' vérifiée/créée avec succès.")
 
-        # Copier les données de l'ancienne table vers la nouvelle
-        cursor.execute(
-            """
-            INSERT INTO passwords (site, username, password)
-            SELECT site, username, password FROM passwords_old
-        """
-        )
+        self.conn.commit()
 
-        # Supprimer l'ancienne table
-        cursor.execute("DROP TABLE passwords_old")
-
-    conn.commit()
-    conn.close()
+    def close(self):
+        self.conn.commit()
+        self.conn.close()
 
 
 class ThemeManager:
@@ -191,7 +271,7 @@ class LoginWindow(QMainWindow):
     def __init__(self, theme_manager):
         super().__init__()
         self.theme_manager = theme_manager
-        self.setWindowTitle("Secure Password Manager - Login")
+        self.setWindowTitle("Gestionnaire de mots de passe - Login")
         self.setGeometry(100, 100, 400, 300)
 
         # Configuration de la base de données
@@ -231,6 +311,13 @@ class LoginWindow(QMainWindow):
         button_layout.addWidget(self.register_button)
         layout.addLayout(button_layout)
         layout.addWidget(self.theme_toggle_button)
+
+        # Add password strength indicator
+        self.password_strength = PasswordStrengthIndicator()
+        layout.addWidget(self.password_strength)
+
+        # Connect password input to strength indicator
+        self.password_input.textChanged.connect(self.password_strength.update_strength)
 
     def toggle_theme(self):
         self.theme_manager.toggle_theme()
@@ -298,7 +385,7 @@ class PasswordManager(QMainWindow):
         self.theme_manager = theme_manager
         self.user_id = user_id
         self.username = username
-        self.setWindowTitle(f"Secure Password Manager - Dashboard ({username})")
+        self.setWindowTitle(f"Gestionnaire de mots de passe de ({username})")
         self.setGeometry(100, 100, 1400, 700)
         self.conn = sqlite3.connect("passwords.db")
         self.cursor = self.conn.cursor()
@@ -361,6 +448,24 @@ class PasswordManager(QMainWindow):
         self.content_layout.addWidget(self.password_table)
         main_layout.addWidget(self.content_area)
         self.load_passwords()
+        # Add password strength indicator
+        self.password_strength = PasswordStrengthIndicator()
+        add_password_layout.addWidget(self.password_strength)
+
+        # Connect password input to strength indicator
+        self.password_input.textChanged.connect(self.password_strength.update_strength)
+
+        # Add password generator button
+        generate_password_button = QPushButton("Générer un mot de passe")
+        generate_password_button.clicked.connect(self.generate_password)
+        add_password_layout.addWidget(generate_password_button)
+
+    def generate_password(self):
+        generator = PasswordGenerator(self)
+        if generator.exec() == QDialog.Accepted:
+            generated_password = generator.get_generated_password()
+            self.password_input.setText(generated_password)
+            self.password_strength.update_strength(generated_password)
 
     def toggle_add_password_form(self):
         if self.add_password_section.isVisible():
@@ -433,19 +538,35 @@ class PasswordManager(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Modifier le mot de passe")
         layout = QVBoxLayout(dialog)
+
         site_input = QLineEdit(site)
         username_input = QLineEdit(username)
         password_input = QLineEdit(password)
+        password_strength = PasswordStrengthIndicator()
+
         layout.addWidget(QLabel("Site:"))
         layout.addWidget(site_input)
         layout.addWidget(QLabel("Nom d'utilisateur:"))
         layout.addWidget(username_input)
         layout.addWidget(QLabel("Mot de passe:"))
         layout.addWidget(password_input)
+        layout.addWidget(password_strength)
+
+        # Add password generator button
+        generate_password_button = QPushButton("Générer un mot de passe")
+        generate_password_button.clicked.connect(
+            lambda: self.generate_password_for_edit(password_input, password_strength)
+        )
+        layout.addWidget(generate_password_button)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
+
+        password_input.textChanged.connect(password_strength.update_strength)
+        password_strength.update_strength(password)
+
         if dialog.exec() == QDialog.Accepted:
             new_site = site_input.text()
             new_username = username_input.text()
@@ -456,6 +577,13 @@ class PasswordManager(QMainWindow):
             )
             self.conn.commit()
             self.load_passwords()
+
+    def generate_password_for_edit(self, password_input, password_strength):
+        generator = PasswordGenerator(self)
+        if generator.exec() == QDialog.Accepted:
+            generated_password = generator.get_generated_password()
+            password_input.setText(generated_password)
+            password_strength.update_strength(generated_password)
 
     def delete_password(self, id):
         confirm = QMessageBox.question(
@@ -485,7 +613,7 @@ class PasswordManager(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    initialize_database()
+    db_manager = DatabaseManager()
     theme_manager = ThemeManager()
     theme_manager.apply_theme()
     login_window = LoginWindow(theme_manager)
