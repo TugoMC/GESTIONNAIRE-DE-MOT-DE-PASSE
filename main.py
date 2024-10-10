@@ -235,6 +235,7 @@ class DatabaseManager:
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self.initialize_database()
+        self.migrate_database()
 
     def initialize_database(self):
         self.cursor.execute(
@@ -264,6 +265,17 @@ class DatabaseManager:
     def close(self):
         self.conn.commit()
         self.conn.close()
+
+    def migrate_database(self):
+        # Vérifier si la colonne email existe déjà
+        self.cursor.execute("PRAGMA table_info(passwords)")
+        columns = [column[1] for column in self.cursor.fetchall()]
+
+        if "email" not in columns:
+            # Ajouter la colonne email si elle n'existe pas
+            self.cursor.execute("ALTER TABLE passwords ADD COLUMN email TEXT")
+            self.conn.commit()
+            print("La colonne 'email' a été ajoutée à la table 'passwords'.")
 
 
 class ThemeManager:
@@ -491,9 +503,13 @@ class PasswordManager(QMainWindow):
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Mot de passe")
         self.password_input.setEchoMode(QLineEdit.Password)
+
         add_button = QPushButton("Ajouter")
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("E-mail (optionnel)")
+        add_password_layout.addWidget(self.email_input)
+        add_password_layout.addWidget(self.username_input)
         add_button.clicked.connect(self.add_password)
-        add_password_layout.addWidget(QLabel("Ajouter un nouveau mot de passe"))
         add_password_layout.addWidget(self.site_input)
         add_password_layout.addWidget(self.username_input)
         add_password_layout.addWidget(self.password_input)
@@ -516,6 +532,7 @@ class PasswordManager(QMainWindow):
         self.content_layout.addWidget(self.password_table)
         main_layout.addWidget(self.content_area)
         self.load_passwords()
+
         # Add password strength indicator
         self.password_strength = PasswordStrengthIndicator()
         add_password_layout.addWidget(self.password_strength)
@@ -544,37 +561,54 @@ class PasswordManager(QMainWindow):
     def add_password(self):
         site = self.site_input.text()
         username = self.username_input.text()
+        email = self.email_input.text()
         password = self.password_input.text()
-        if not site or not username or not password:
-            QMessageBox.warning(self, "Erreur", "Tous les champs doivent être remplis.")
+        if not site or not password:
+            QMessageBox.warning(
+                self, "Erreur", "Le site et le mot de passe sont obligatoires."
+            )
             return
         encrypted_password = self.encryptor.encrypt(password)
         self.cursor.execute(
-            "INSERT INTO passwords (user_id, site, username, encrypted_password) VALUES (?, ?, ?, ?)",
-            (self.user_id, site, username, encrypted_password),
+            "INSERT INTO passwords (user_id, site, username, email, encrypted_password) VALUES (?, ?, ?, ?, ?)",
+            (self.user_id, site, username, email, encrypted_password),
         )
         self.conn.commit()
         QMessageBox.information(self, "Succès", "Mot de passe ajouté avec succès.")
         self.load_passwords()
         self.site_input.clear()
         self.username_input.clear()
+        self.email_input.clear()
         self.password_input.clear()
 
     def load_passwords(self):
         self.password_table.setRowCount(0)
+        self.password_table.setColumnCount(7)  # Ajout d'une colonne pour l'e-mail
+        self.password_table.setHorizontalHeaderLabels(
+            [
+                "Site",
+                "Nom d'utilisateur",
+                "E-mail",
+                "Mot de passe",
+                "Afficher",
+                "Modifier",
+                "Supprimer",
+            ]
+        )
         self.cursor.execute(
-            "SELECT id, site, username, encrypted_password FROM passwords WHERE user_id = ?",
+            "SELECT id, site, username, email, encrypted_password FROM passwords WHERE user_id = ?",
             (self.user_id,),
         )
-        for row, (id, site, username, encrypted_password) in enumerate(
+        for row, (id, site, username, email, encrypted_password) in enumerate(
             self.cursor.fetchall()
         ):
             decrypted_password = self.encryptor.decrypt(encrypted_password)
             self.password_table.insertRow(row)
             self.password_table.setItem(row, 0, QTableWidgetItem(site))
-            self.password_table.setItem(row, 1, QTableWidgetItem(username))
+            self.password_table.setItem(row, 1, QTableWidgetItem(username or ""))
+            self.password_table.setItem(row, 2, QTableWidgetItem(email or ""))
             self.password_table.setItem(
-                row, 2, QTableWidgetItem("•" * len(decrypted_password))
+                row, 3, QTableWidgetItem("•" * len(decrypted_password))
             )
             show_button = QPushButton("Afficher")
             show_button.clicked.connect(
@@ -602,20 +636,23 @@ class PasswordManager(QMainWindow):
         else:
             self.password_table.setItem(row, 2, QTableWidgetItem("•" * len(password)))
 
-    def edit_password(self, id, site, username, password):
+    def edit_password(self, id, site, username, email, password):
         dialog = QDialog(self)
         dialog.setWindowTitle("Modifier le mot de passe")
         layout = QVBoxLayout(dialog)
 
         site_input = QLineEdit(site)
         username_input = QLineEdit(username)
+        email_input = QLineEdit(email)
         password_input = QLineEdit(password)
         password_strength = PasswordStrengthIndicator()
 
         layout.addWidget(QLabel("Site:"))
         layout.addWidget(site_input)
-        layout.addWidget(QLabel("Nom d'utilisateur:"))
+        layout.addWidget(QLabel("Nom d'utilisateur (optionnel):"))
         layout.addWidget(username_input)
+        layout.addWidget(QLabel("E-mail (optionnel):"))
+        layout.addWidget(email_input)
         layout.addWidget(QLabel("Mot de passe:"))
         layout.addWidget(password_input)
         layout.addWidget(password_strength)
@@ -638,11 +675,17 @@ class PasswordManager(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             new_site = site_input.text()
             new_username = username_input.text()
+            new_email = email_input.text()
             new_password = password_input.text()
+            if not new_site or not new_password:
+                QMessageBox.warning(
+                    self, "Erreur", "Le site et le mot de passe sont obligatoires."
+                )
+                return
             encrypted_password = self.encryptor.encrypt(new_password)
             self.cursor.execute(
-                "UPDATE passwords SET site=?, username=?, encrypted_password=? WHERE id=?",
-                (new_site, new_username, encrypted_password, id),
+                "UPDATE passwords SET site=?, username=?, email=?, encrypted_password=? WHERE id=?",
+                (new_site, new_username, new_email, encrypted_password, id),
             )
             self.conn.commit()
             self.load_passwords()
